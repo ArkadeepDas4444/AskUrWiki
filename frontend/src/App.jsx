@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "";
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+const disableTurnstile = import.meta.env.VITE_DISABLE_TURNSTILE === "true";
 
 function App() {
   const [message, setMessage] = useState("");
@@ -14,6 +15,12 @@ function App() {
   const turnstileWidgetIdRef = useRef(null);
 
   useEffect(() => {
+    if (disableTurnstile) {
+      setCaptchaReady(true);
+      setCaptchaError("");
+      return undefined;
+    }
+
     if (!turnstileSiteKey) {
       setCaptchaError("Turnstile is not configured yet. Add VITE_TURNSTILE_SITE_KEY to the frontend environment.");
       return undefined;
@@ -66,6 +73,10 @@ function App() {
   }, []);
 
   const resetTurnstile = () => {
+    if (disableTurnstile) {
+      return;
+    }
+
     if (window.turnstile && turnstileWidgetIdRef.current !== null) {
       window.turnstile.reset(turnstileWidgetIdRef.current);
     }
@@ -75,7 +86,7 @@ function App() {
 
   const sendMessage = async () => {
     if (!message.trim()) return;
-    if (!captchaToken) {
+    if (!disableTurnstile && !captchaToken) {
       setCaptchaError("Please complete the verification challenge before sending a message.");
       return;
     }
@@ -134,7 +145,9 @@ function App() {
         </h1>
 
         <p className="mb-4 text-center text-sm text-zinc-400">
-          Public demo mode is enabled with bot checks and daily usage limits.
+          {disableTurnstile
+            ? "Local development mode is enabled with Turnstile disabled."
+            : "Public demo mode is enabled with bot checks and daily usage limits."}
         </p>
 
         <div className="bg-zinc-900 rounded-2xl p-4 h-[70vh] overflow-y-auto shadow-lg">
@@ -184,7 +197,7 @@ function App() {
 
           <button
             onClick={sendMessage}
-            disabled={loading || !captchaReady}
+            disabled={loading || (!disableTurnstile && !captchaReady)}
             className="bg-blue-600 px-6 py-3 rounded-xl hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-900"
           >
             Send
@@ -192,14 +205,16 @@ function App() {
 
         </div>
 
-        <div className="mt-4 rounded-2xl bg-zinc-900 p-4 shadow-lg">
-          <div ref={turnstileContainerRef} />
-          {captchaError && (
-            <p className="mt-3 text-sm text-amber-300">
-              {captchaError}
-            </p>
-          )}
-        </div>
+        {!disableTurnstile && (
+          <div className="mt-4 rounded-2xl bg-zinc-900 p-4 shadow-lg">
+            <div ref={turnstileContainerRef} />
+            {captchaError && (
+              <p className="mt-3 text-sm text-amber-300">
+                {captchaError}
+              </p>
+            )}
+          </div>
+        )}
 
       </div>
 
