@@ -1,15 +1,0 @@
-[2026-05-18 05:52:19 +0000] [1164] [INFO] Starting gunicorn 26.0.0
-[2026-05-18 05:52:19 +0000] [1164] [INFO] Listening at: http://127.0.0.1:5000 (1164)
-[2026-05-18 05:52:19 +0000] [1164] [INFO] Using worker: sync
-[2026-05-18 05:52:19 +0000] [1169] [INFO] Booting worker with pid: 1169
-[2026-05-18 05:52:19 +0000] [1164] [INFO] Control socket listening at /run/user/1000/gunicorn.ctl
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1267.83it/s]
-[2026-05-18 06:03:42 +0000] [1164] [CRITICAL] WORKER TIMEOUT (pid:1169)
-[2026-05-18 06:03:44 +0000] [1164] [ERROR] Worker (pid:1169) was sent SIGKILL! Perhaps out of memory?
-/usr/lib/python3.14/multiprocessing/resource_tracker.py:396: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown: {'/loky-1169-0h_aklve'}
-  warnings.warn(
-[2026-05-18 06:03:44 +0000] [1376] [INFO] Booting worker with pid: 1376
-[2026-05-18 06:03:44 +0000] [1164] [INFO] Control socket listening at /run/user/1000/gunicorn.ctl
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 8385.35it/s]
