@@ -19,6 +19,7 @@ Built using:
 * Retrieval-Augmented Generation (RAG)
 * Semantic search using embeddings
 * FAISS vector search
+* Disk-backed raw page and chunk caching with LRU cleanup
 * Modern React + Tailwind chat UI
 * Flask backend API
 * Context-aware answers
@@ -75,10 +76,11 @@ wikipedia-chatbot/
 2. Flask API receives the query
 3. LangChain generates multiple search queries
 4. Relevant Wikipedia articles are retrieved
-5. Articles are chunked and embedded
-6. FAISS performs semantic retrieval
-7. Retrieved context is sent to the LLM
-8. Final response is generated and returned
+5. Cached raw pages and chunked sections are reused when available
+6. Articles are chunked and embedded
+7. FAISS performs semantic retrieval
+8. Retrieved context is sent to the LLM
+9. Final response is generated and returned
 
 ---
 
@@ -123,6 +125,8 @@ ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 RATE_LIMIT_PER_MINUTE=5
 RATE_LIMIT_PER_DAY_PER_IP=20
 GLOBAL_DAILY_CAP=200
+BYPASS_LIMIT_IPS=
+BYPASS_TURNSTILE_IPS=
 ```
 
 ### 5. Run Flask server
@@ -160,6 +164,7 @@ Create `frontend/.env`:
 ```env
 VITE_API_BASE_URL=
 VITE_TURNSTILE_SITE_KEY=your_turnstile_site_key_here
+VITE_DISABLE_TURNSTILE=false
 ```
 
 ```bash
@@ -184,8 +189,29 @@ http://localhost:5173
 | `RATE_LIMIT_PER_MINUTE` | Per-IP requests allowed each minute |
 | `RATE_LIMIT_PER_DAY_PER_IP` | Per-IP requests allowed per day |
 | `GLOBAL_DAILY_CAP` | Global successful chat requests allowed per day |
+| `BYPASS_LIMIT_IPS` | Comma-separated client IPs that skip backend rate limits and daily caps |
+| `BYPASS_TURNSTILE_IPS` | Comma-separated client IPs that skip backend Turnstile verification |
 | `VITE_API_BASE_URL` | Frontend API base URL. Leave empty when nginx serves frontend and backend from the same domain |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key used by the frontend |
+| `VITE_DISABLE_TURNSTILE` | Set to `true` for local development when you want the frontend to skip Turnstile |
+
+---
+
+## Caching
+
+The backend now keeps a disk-backed cache in `backend/cache/` for:
+
+* Raw Wikipedia page text
+* Processed section chunks
+
+Cache policy:
+
+* Raw page cache: up to 100 pages
+* Chunk cache: up to 100 processed pages
+* Total cache size: 100 MB combined
+* Eviction policy: LRU-style page eviction
+
+The cache is generated at runtime and should not be committed to git.
 
 ---
 
@@ -218,14 +244,13 @@ proxy_set_header X-Real-IP $remote_addr;
 * Chat history
 * Docker deployment
 * Async retrieval
-* Wikipedia caching
 * Vector database persistence
 
 ---
 
 ## Known Limitations
 
-* FAISS index rebuilds on every query
+* FAISS embeddings and vector index are still rebuilt on every query
 * Wikipedia retrieval can occasionally fail
 * No persistent memory yet
 * Response latency can increase for complex queries
