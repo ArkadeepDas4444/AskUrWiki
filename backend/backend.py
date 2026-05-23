@@ -33,6 +33,12 @@ for cache_dir in (RAW_CACHE_DIR, CHUNK_CACHE_DIR):
 class QueryList(BaseModel):
     queries: List[str]
 
+class QuestionPlan(BaseModel):
+    question_type: str
+    queries: List[str]
+    entities: List[str]
+    aspects: List[str]
+
 wiki = wikipediaapi.Wikipedia(
     language='en',
     user_agent='wikipedia-rag-chatbot/1.0'
@@ -42,11 +48,11 @@ embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-query_llm = ChatGroq(
+planner_llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
     model_name="llama-3.1-8b-instant",
     temperature=0.5
-).with_structured_output(QueryList)
+).with_structured_output(QuestionPlan)
 
 llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
@@ -350,6 +356,7 @@ def split_by_sections(docs):
         canonical_key = doc.metadata.get("canonical_key", "")
         source_url = doc.metadata.get("source_url", "")
         cache_key = doc.metadata.get("cache_key", "")
+        retrieval_aspect = doc.metadata.get("retrieval_aspect")
 
         # Split on Wikipedia headings
         sections = re.split(r"(==+.*?==+)", doc.page_content)
@@ -372,27 +379,39 @@ def split_by_sections(docs):
                                 "canonical_key": canonical_key,
                                 "source_url": source_url,
                                 "cache_key": cache_key,
+                                "retrieval_aspect": retrieval_aspect,
                             }
                         )
                     )
 
     return split_docs
 
-# Question -> Query prompt template
-multi_query_prompt = ChatPromptTemplate.from_template("""
-Generate 3 concise Wikipedia search queries for the question. Each query should explore a different conceptual angle. Avoid vague or generic wording.
+# Question analysis prompt template
+question_analysis_prompt = ChatPromptTemplate.from_template("""
+Analyze the user question for a Wikipedia-based RAG system.
+
+Return:
+- question_type: one of [comparison, single_entity, multi_entity, broad_topic, list, recent_or_latest, explanation]
+- entities: named people, organizations, places, theories, or topics that should be retrieved separately when useful
+- aspects: 3 distinct subtopics or angles for list/latest questions; otherwise return an empty list
+- queries: 3 concise Wikipedia search queries that improve retrieval quality
+
+Rules:
+- For comparison questions, identify the compared entities explicitly
+- For list or latest questions, make aspects diverse rather than near-duplicate paraphrases
+- For "latest" or "recent" questions, still produce Wikipedia-friendly topic queries instead of news-style wording
+- Keep queries short, specific, and useful for Wikipedia search
+- Avoid generic filler such as "explained in simple terms"
 
 Question:
 {question}
 """)
 
-def generate_queries(question):
+def analyze_question(question):
     result = (
-        multi_query_prompt
-        | query_llm
+        question_analysis_prompt
+        | planner_llm
     ).invoke({"question": question})
-
-    queries = result.queries[:3]
 
     def clean_query(q):
         q = q.replace('"', '')
@@ -400,7 +419,17 @@ def generate_queries(question):
         q = q.strip()
         return q[:100]
 
-    return [clean_query(q) for q in queries]
+    cleaned_queries = [clean_query(q) for q in result.queries[:3] if clean_query(q)]
+    cleaned_entities = [entity.strip() for entity in result.entities if entity.strip()]
+    cleaned_aspects = [clean_query(aspect) for aspect in result.aspects[:3] if clean_query(aspect)]
+    question_type = (result.question_type or "broad_topic").strip().lower()
+
+    return {
+        "question_type": question_type,
+        "queries": cleaned_queries,
+        "entities": cleaned_entities,
+        "aspects": cleaned_aspects,
+    }
 
 wiki_cache = {}
 
@@ -408,7 +437,14 @@ wiki_cache = {}
 def wiki_retriever_multi(question):
     section_cache = {}
 
-    def safe_wikipedia_load(query):
+    def clean_topic_query(question_text):
+        cleaned = question_text.strip()
+        cleaned = re.sub(r"(?i)\b(explain|describe|summarize|tell me about|in easy way|simply)\b", "", cleaned)
+        cleaned = re.sub(r"(?i)\b(latest|recent|current)\b", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ?.,")
+        return cleaned[:100]
+
+    def safe_wikipedia_load(query, retrieval_aspect=None):
         docs = []
 
         try:
@@ -440,6 +476,12 @@ def wiki_retriever_multi(question):
                     if not cached_page:
                         save_raw_page_to_cache(page_metadata, page_text)
 
+                    if retrieval_aspect:
+                        page_metadata = {
+                            **page_metadata,
+                            "retrieval_aspect": retrieval_aspect,
+                        }
+
                     docs.append(
                         Document(
                             page_content=page_text,
@@ -454,11 +496,102 @@ def wiki_retriever_multi(question):
 
         return docs
 
-    queries = generate_queries(question)
-    print(f"queries:\n{queries}\n")     # Print queries in the terminal
+    def load_entity_docs(entity_name):
+        docs = []
+
+        try:
+            exact_page = wiki.page(entity_name)
+
+            if exact_page.exists():
+                page_metadata = build_page_metadata(exact_page)
+                cached_page = load_raw_page_from_cache(page_metadata["cache_key"])
+                page_text = cached_page["page_content"] if cached_page else exact_page.text
+
+                if not cached_page:
+                    save_raw_page_to_cache(page_metadata, page_text)
+
+                docs.append(
+                    Document(
+                        page_content=page_text,
+                        metadata=page_metadata
+                    )
+                )
+
+        except Exception as e:
+            print(f"Exact Wikipedia page load failed for {entity_name}: {e}")
+
+        docs.extend(safe_wikipedia_load(entity_name))
+        return docs
+
+    def build_retrieval_queries(question_text, plan):
+        queries = list(plan["queries"])
+        question_type = plan["question_type"]
+        entities = plan["entities"]
+        aspects = plan["aspects"]
+        broad_topic_query = clean_topic_query(question_text)
+
+        if question_type == "comparison" and len(entities) >= 2:
+            for entity in entities[:3]:
+                queries.append(entity)
+                queries.append(f"{entity} research")
+                queries.append(f"{entity} contributions")
+        elif question_type in {"single_entity", "multi_entity"}:
+            for entity in entities[:3]:
+                queries.append(entity)
+        elif question_type == "list":
+            queries.extend(aspects[:3])
+            if broad_topic_query:
+                queries.append(broad_topic_query)
+        elif question_type in {"recent_or_latest", "broad_topic", "explanation"}:
+            if question_type == "recent_or_latest":
+                queries.extend(aspects[:3])
+            if broad_topic_query:
+                queries.append(broad_topic_query)
+
+        deduped_queries = []
+        seen_queries = set()
+
+        for query in queries:
+            cleaned_query = query.strip()
+            if cleaned_query and cleaned_query not in seen_queries:
+                seen_queries.add(cleaned_query)
+                deduped_queries.append(cleaned_query[:100])
+
+        return deduped_queries
+
+    def collect_docs_for_aspects(aspects, seen_titles):
+        aspect_docs = []
+
+        for aspect in aspects[:3]:
+            docs = safe_wikipedia_load(aspect, retrieval_aspect=aspect)
+
+            for doc in docs:
+                canonical_key = doc.metadata.get("canonical_key", "")
+                if canonical_key not in seen_titles:
+                    seen_titles.add(canonical_key)
+                    aspect_docs.append(doc)
+
+        return aspect_docs
+
+    plan = analyze_question(question)
+    queries = build_retrieval_queries(question, plan)
+    print(f"question_plan:\n{plan}\n")
+    print(f"queries:\n{queries}\n")
 
     all_docs = []
     seen_titles = set()
+
+    if plan["question_type"] == "comparison" and len(plan["entities"]) >= 2:
+        for entity in plan["entities"][:3]:
+            docs = load_entity_docs(entity)
+
+            for doc in docs:
+                canonical_key = doc.metadata.get("canonical_key", "")
+                if canonical_key not in seen_titles:
+                    seen_titles.add(canonical_key)
+                    all_docs.append(doc)
+    elif plan["question_type"] in {"list", "recent_or_latest"} and plan["aspects"]:
+        all_docs.extend(collect_docs_for_aspects(plan["aspects"], seen_titles))
 
     # Fetch docs for each query
     for q in queries:
@@ -530,6 +663,8 @@ Rules:
 - Provide a complete but concise answer
 - If information the retrieved Wikipedia context is incomplete, mention that clearly
 - Do NOT invent unsupported facts
+- If the question asks for a list or latest/recent developments and the context includes aspect labels, prefer one distinct answer item per aspect
+- If the question asks for the latest or recent developments, clarify when Wikipedia context may not reflect the absolute newest real-time updates
 
 Context:
 {context}
@@ -542,6 +677,7 @@ Question:
 def format_docs(docs):
     formatted_docs = "\n\n".join(
         f"[Article: {doc.metadata.get('title','')}]\n"
+        f"{'[Aspect: ' + doc.metadata.get('retrieval_aspect', '') + ']\n' if doc.metadata.get('retrieval_aspect') else ''}"
         f"[Section: {doc.metadata.get('section','Unknown')}]\n"
         f"{doc.page_content}"
         for doc in docs

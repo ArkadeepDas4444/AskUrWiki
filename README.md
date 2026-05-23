@@ -16,6 +16,7 @@ Built using:
 ## Features
 
 * Multi-query Wikipedia retrieval
+* Question-aware retrieval for comparison, list, and latest-style questions
 * Retrieval-Augmented Generation (RAG)
 * Semantic search using embeddings
 * FAISS vector search
@@ -73,14 +74,13 @@ wikipedia-chatbot/
 ## How It Works
 
 1. User asks a question from the React frontend
-2. Flask API receives the query
-3. LangChain generates multiple search queries
-4. Relevant Wikipedia articles are retrieved
-5. Cached raw pages and chunked sections are reused when available
-6. Articles are chunked and embedded
-7. FAISS performs semantic retrieval
-8. Retrieved context is sent to the LLM
-9. Final response is generated and returned
+2. Flask analyzes the question type and generates retrieval queries
+3. Relevant Wikipedia articles are retrieved, with extra entity/aspect targeting when useful
+4. Cached raw pages and chunked sections are reused when available
+5. Articles are chunked and embedded
+6. FAISS performs semantic retrieval
+7. Retrieved context is sent to the LLM
+8. Final response is generated and returned
 
 ---
 
@@ -252,6 +252,7 @@ proxy_set_header X-Real-IP $remote_addr;
 
 * FAISS embeddings and vector index are still rebuilt on every query
 * Wikipedia retrieval can occasionally fail
+* Latest/recent questions are still limited by Wikipedia coverage and update speed
 * No persistent memory yet
 * Response latency can increase for complex queries
 
