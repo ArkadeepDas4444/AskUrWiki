@@ -8,7 +8,7 @@ import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from backend import ask_question
+from rag_service import ask_question
 
 app = Flask(__name__)
 
