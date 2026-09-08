@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+from model_names import planner_model
 
 load_dotenv()
 
@@ -15,7 +16,7 @@ class QuestionPlan(BaseModel):
 
 planner_llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
-    model_name="llama-3.1-8b-instant",
+    model_name=planner_model,
     temperature=0.5
 ).with_structured_output(QuestionPlan)
 

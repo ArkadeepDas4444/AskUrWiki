@@ -5,6 +5,7 @@ from langchain_groq import ChatGroq
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.vectorstores import FAISS
+from model_names import final_model
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ embeddings = HuggingFaceEmbeddings(
 
 llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
-    model_name="llama-3.1-8b-instant",
+    model_name=final_model,
     temperature=0.2
 )
 
