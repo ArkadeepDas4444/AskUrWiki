@@ -17,23 +17,29 @@ class QuestionPlan(BaseModel):
 planner_llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
     model_name=planner_model,
-    temperature=0.5
-).with_structured_output(QuestionPlan)
+    temperature=0.2
+).with_structured_output(
+    QuestionPlan,
+    # The default is function_calling, which makes Groq require a tool call.
+    # GPT-OSS can return the schema directly via Groq's native structured output.
+    method="json_schema",
+    strict=True,
+)
 
 # Question analysis prompt template
 question_analysis_prompt = ChatPromptTemplate.from_template("""
 Analyze the user question for a Wikipedia-based RAG system.
 
 Return:
-- question_type: one of [comparison, single_entity, multi_entity, broad_topic, list, recent_or_latest, explanation]
-- entities: named people, organizations, places, theories, or topics that should be retrieved separately when useful
-- aspects: 3 distinct subtopics or angles for list/latest questions; otherwise return an empty list
+- question_type: one of ["comparison", "single_entity", "multi_entity", "list", "recent_or_latest", "explanation_or_broad_topic"]
+- entities: named people, organizations, places, theories, or topics that should be retrieved separately if is question_type is "comparison", "single_entity" or "multi_entity"; otherwise return an empty list
+- aspects: 3 distinct subtopics or angles if question_type is "list" or "recent_or_latest"; otherwise return an empty list
 - queries: 3 concise Wikipedia search queries that improve retrieval quality
 
 Rules:
-- For comparison questions, identify the compared entities explicitly
-- For list or latest questions, make aspects diverse rather than near-duplicate paraphrases
-- For "latest" or "recent" questions, still produce Wikipedia-friendly topic queries instead of news-style wording
+- For "comparison" questions, identify the compared entities explicitly
+- For "recent_or_latest" questions, make aspects diverse rather than near-duplicate paraphrases
+- For "recent_or_latest" questions, still produce Wikipedia-friendly topic queries instead of news-style wording
 - Keep queries short, specific, and useful for Wikipedia search
 - Avoid generic filler such as "explained in simple terms"
 
@@ -77,25 +83,18 @@ def build_retrieval_queries(question_text, plan):
     question_type = plan["question_type"]
     entities = plan["entities"]
     aspects = plan["aspects"]
-    broad_topic_query = clean_topic_query(question_text)
+    cleaned_topic_query = clean_topic_query(question_text)
 
-    if question_type == "comparison" and len(entities) >= 2:
+    if question_type in {"comparison", "single_entity", "multi_entity"}:
+        queries.extend(entities[:3])
         for entity in entities[:3]:
-            queries.append(entity)
-            queries.append(f"{entity} research")
-            queries.append(f"{entity} contributions")
-    elif question_type in {"single_entity", "multi_entity"}:
-        for entity in entities[:3]:
-            queries.append(entity)
-    elif question_type == "list":
+            queries.append(f"about {entity}")
+    elif question_type in {"list", "recent_or_latest"}:
         queries.extend(aspects[:3])
-        if broad_topic_query:
-            queries.append(broad_topic_query)
-    elif question_type in {"recent_or_latest", "broad_topic", "explanation"}:
-        if question_type == "recent_or_latest":
-            queries.extend(aspects[:3])
-        if broad_topic_query:
-            queries.append(broad_topic_query)
+        if cleaned_topic_query:
+            queries.append(cleaned_topic_query)
+    elif cleaned_topic_query:
+        queries.append(cleaned_topic_query)
 
     deduped_queries = []
     seen_queries = set()

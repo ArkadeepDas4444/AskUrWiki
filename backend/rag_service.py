@@ -5,7 +5,7 @@ from langchain_groq import ChatGroq
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.vectorstores import FAISS
-from model_names import final_model
+from model_names import rag_model
 
 load_dotenv()
 
@@ -18,7 +18,7 @@ embeddings = HuggingFaceEmbeddings(
 
 llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
-    model_name=final_model,
+    model_name=rag_model,
     temperature=0.2
 )
 
@@ -42,8 +42,8 @@ def wiki_retriever_multi(question):
 
     plan = question_planner.analyze_question(question)
     queries = question_planner.build_retrieval_queries(question, plan)
-    print(f"question_plan:\n{plan}\n")
-    print(f"queries:\n{queries}\n")
+    print(f"QUESTION_PLAN:\n{plan}\n")
+    print(f"QUERIES:\n{queries}\n")
 
     all_docs = []
     seen_titles = set()
@@ -129,7 +129,8 @@ def format_docs(docs):
         f"{doc.page_content}"
         for doc in docs
     )
-    print(f"formatted_docs:\n{formatted_docs}\n")   # Print formatted_docs in the terminal
+    # Print formatted_docs in the terminal
+    print(f"\nFORMATTED_DOCS:\n{formatted_docs}\n")
     return formatted_docs
 
 # RAG chain
@@ -142,5 +143,14 @@ rag_chain = (
 
 def ask_question(question):
     response = rag_chain.invoke(question)
-    print(f"response:\n{response}\n")   # Print response in the terminal
+    # Print response in the terminal
+    print(f"RESPONSE:\n{response}\n")
     return response
+
+# -----------------------------------------
+
+# ONLY FOR BACKEND TESTING (Comment out the lines below while testing with frontend)
+question = input("QUESTION:\n")
+print()
+response = rag_chain.invoke(question)
+print(f"RESPONSE:\n{response}\n")

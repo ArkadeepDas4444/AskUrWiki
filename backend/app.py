@@ -79,10 +79,8 @@ def get_time_buckets():
     now = datetime.now(timezone.utc)
     return now.strftime("%Y-%m-%d"), now.strftime("%Y-%m-%dT%H:%M")
 
-
 def is_limit_bypass_ip(ip_address):
     return ip_address in BYPASS_LIMIT_IPS
-
 
 def is_turnstile_bypass_ip(ip_address):
     return ip_address in BYPASS_TURNSTILE_IPS
