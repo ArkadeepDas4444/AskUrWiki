@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
 from model_names import planner_model
+from prompts import question_analysis_prompt
 
 load_dotenv()
 
@@ -25,27 +25,6 @@ planner_llm = ChatGroq(
     method="json_schema",
     strict=True,
 )
-
-# Question analysis prompt template
-question_analysis_prompt = ChatPromptTemplate.from_template("""
-Analyze the user question for a Wikipedia-based RAG system.
-
-Return:
-- question_type: one of ["comparison", "single_entity", "multi_entity", "list", "recent_or_latest", "explanation_or_broad_topic"]
-- entities: named people, organizations, places, theories, or topics that should be retrieved separately if is question_type is "comparison", "single_entity" or "multi_entity"; otherwise return an empty list
-- aspects: 3 distinct subtopics or angles if question_type is "list" or "recent_or_latest"; otherwise return an empty list
-- queries: 3 concise Wikipedia search queries that improve retrieval quality
-
-Rules:
-- For "comparison" questions, identify the compared entities explicitly
-- For "recent_or_latest" questions, make aspects diverse rather than near-duplicate paraphrases
-- For "recent_or_latest" questions, still produce Wikipedia-friendly topic queries instead of news-style wording
-- Keep queries short, specific, and useful for Wikipedia search
-- Avoid generic filler such as "explained in simple terms"
-
-Question:
-{question}
-""")
 
 def analyze_question(question):
     result = (
